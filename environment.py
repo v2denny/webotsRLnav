@@ -8,6 +8,10 @@ from typing import List
 import numpy as np
 from scripts.positions import get_positions
 from scripts.utils import warp_robot
+import time
+import os
+import csv
+from datetime import datetime
 DIST_THRESHOLD = 0.1
 
 
@@ -56,11 +60,21 @@ class WebotsEnv(gym.Env):
         self.steps = 0  # To keep track of steps per episode
         self.total_episodes = 0
         self.finished_episodes = 0
+        self.metrics = MetricsTracker()
 
     '''
     Reset environment and metrics
     '''
     def reset(self, seed=None, options=None):
+        # Log the previous episode if this isn't the first reset
+        if self.steps > 0:
+            # Log if the episode was successful (reached final target)
+            success = self.targs == 0
+            self.metrics.log_episode(success, self.steps, len(self.visited_locations))
+        
+        # Reset episode-specific metrics
+        self.metrics.reset_episode_metrics()
+
         # Counters
         self.total_episodes+=1
         self.visited_locations = set()
@@ -113,6 +127,10 @@ class WebotsEnv(gym.Env):
         truncated = self.steps >= self.max_steps_per_episode
 
         reward, done = self.calculate_reward()
+
+        collision = self.collision()
+        self.metrics.log_step(reward, collision)
+
         return self.get_observation(), reward, done, truncated, {}
 
     '''
@@ -293,6 +311,110 @@ class WebotsEnv(gym.Env):
         distances = np.clip(distances / 2, 0, 1)
         return distances
 
+    '''
+    Save current metrics to CSV file
+    '''
+    def save_metrics(self, filename="training_metrics.csv", append=False):
+        self.metrics.save_to_csv(filename, append)
+        return self.metrics.get_summary()
 
     def render(self, mode='human'):
         pass
+
+
+
+'''
+Metric tracking and logging class
+'''
+class MetricsTracker:
+    def __init__(self):
+        # Episode-level metrics
+        self.episode_rewards = []
+        self.episode_steps = []
+        self.episode_success = []
+        self.episode_collisions = []
+        self.unique_locations_count = []
+        
+        # Step-level metrics (reset each episode)
+        self.current_episode_reward = 0
+        self.collision_count = 0
+        self.targets_reached = 0
+        
+        # Training-level metrics
+        self.start_time = time.time()
+        self.total_steps = 0
+        self.total_episodes = 0
+        self.successful_episodes = 0
+        self.total_collisions = 0
+        
+    def reset_episode_metrics(self):
+        self.current_episode_reward = 0
+        self.collision_count = 0
+        
+    def log_step(self, reward, collision):
+        self.current_episode_reward += reward
+        self.total_steps += 1
+        if collision:
+            self.collision_count += 1
+            self.total_collisions += 1
+            
+    def log_episode(self, success, steps, unique_locations_count):
+        self.episode_rewards.append(self.current_episode_reward)
+        self.episode_steps.append(steps)
+        self.episode_success.append(1 if success else 0)
+        self.episode_collisions.append(self.collision_count)
+        self.unique_locations_count.append(unique_locations_count)
+        
+        self.total_episodes += 1
+        if success:
+            self.successful_episodes += 1
+        
+    def get_summary(self):
+        training_time = time.time() - self.start_time
+        return {
+            "total_episodes": self.total_episodes,
+            "successful_episodes": self.successful_episodes,
+            "success_rate": (self.successful_episodes / max(1, self.total_episodes)) * 100,
+            "collision_rate": (sum(self.episode_collisions) / max(1, self.total_episodes)),
+            "avg_episode_steps": sum(self.episode_steps) / max(1, self.total_episodes),
+            "avg_episode_reward": sum(self.episode_rewards) / max(1, self.total_episodes),
+            "avg_unique_locations": sum(self.unique_locations_count) / max(1, len(self.unique_locations_count)),
+            "total_steps": self.total_steps,
+            "training_time_seconds": training_time
+        }
+    
+    def save_to_csv(self, filename="training_metrics.csv", append=False):
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
+        
+        # Episode-level data
+        episode_data = {
+            "episode": list(range(1, self.total_episodes + 1)),
+            "reward": self.episode_rewards,
+            "steps": self.episode_steps,
+            "success": self.episode_success,
+            "collisions": self.episode_collisions,
+            "unique_locations": self.unique_locations_count
+        }
+        
+        # Save episode-level data
+        mode = 'a' if append else 'w'
+        with open(filename, mode, newline='') as f:
+            if not append or os.path.getsize(filename) == 0:
+                # Write header
+                header = ','.join(episode_data.keys())
+                f.write(header + '\n')
+                
+            # Write data rows
+            for i in range(len(episode_data["episode"])):
+                row = [str(episode_data[key][i]) for key in episode_data.keys()]
+                f.write(','.join(row) + '\n')
+        
+        # Save summary data to a separate file
+        summary = self.get_summary()
+        summary_filename = filename.replace('.csv', '_summary.csv')
+        with open(summary_filename, 'w', newline='') as f:
+            # Write header and data as key,value pairs
+            f.write('metric,value\n')
+            for key, value in summary.items():
+                f.write(f"{key},{value}\n")
