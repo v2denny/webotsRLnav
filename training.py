@@ -1,30 +1,21 @@
 from environment import WebotsEnv
 import random
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback
 import os
 import time
 from datetime import datetime
 
 
-# Custom callback to save metrics periodically
+# Custom callback to track metrics but not save intermediate files
 class MetricsCallback(BaseCallback):
-    def __init__(self, save_freq=10000, metrics_path="./metrics/", experiment_name="experiment", verbose=1):
+    def __init__(self, verbose=1):
         super(MetricsCallback, self).__init__(verbose)
-        self.save_freq = save_freq
-        self.metrics_path = metrics_path
-        self.experiment_name = experiment_name
-        os.makedirs(metrics_path, exist_ok=True)
-        
+
     def _on_step(self):
-        if self.n_calls % self.save_freq == 0:
-            # Save metrics to CSV with step info
-            metrics_file = f"{self.metrics_path}{self.experiment_name}_step_{self.n_calls}.csv"
-            self.training_env.env_method("save_metrics", metrics_file)[0]
-            
-            if self.verbose > 0:
-                print(f"Metrics saved to {metrics_file}")
-                
+        # No intermediate saving, just track progress
+        if self.n_calls % 10000 == 0 and self.verbose > 0:
+            print(f"Training progress: {self.n_calls} steps completed")
         return True
 
 
@@ -32,10 +23,10 @@ class MetricsCallback(BaseCallback):
 def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=None, metrics_prefix=None):
     env = WebotsEnv()
     env.trainmode = mode
-    
+
     # Track total steps including previous training if model is loaded
     cumulative_steps = total_steps
-    
+
     # Create directories - simplified and consistent paths
     model_dir = "./models/"
     log_dir = "./logs/"
@@ -43,12 +34,22 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(metrics_dir, exist_ok=True)
-    
+
+    # Create experiment name first for consistent naming
+    experiment_name = f"{algorithm.lower()}_{mode}_{cumulative_steps}"
+
+    # Create specific log directory for this run to avoid _1, _2 suffixes
+    specific_log_dir = os.path.join(log_dir, experiment_name)
+    if os.path.exists(specific_log_dir):
+        # Remove previous log directory with same name if it exists
+        import shutil
+        shutil.rmtree(specific_log_dir)
+
     # Create or load model
     if model_path and os.path.exists(model_path):
         model = PPO.load(model_path, env=env, tensorboard_log=log_dir)
         print(f"Model loaded from {model_path}")
-        
+
         # Extract previous steps from filename if possible
         try:
             # Attempt to extract steps from filename format "algo_mode_steps.zip"
@@ -56,47 +57,41 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
             if len(filename_parts) >= 3:
                 prev_steps = int(filename_parts[-1].split('.')[0])
                 cumulative_steps = prev_steps + total_steps
+                # Update experiment name with new cumulative steps
+                experiment_name = f"{algorithm.lower()}_{mode}_{cumulative_steps}"
                 print(f"Continuing training from step {prev_steps}, will train to {cumulative_steps}")
         except (ValueError, IndexError):
             print(f"Could not extract previous steps from filename, using {cumulative_steps} as total")
     else:
         model = PPO('MlpPolicy', env, verbose=1, tensorboard_log=log_dir)
         print("Training a new model")
-    
-    # Consistent naming for all outputs
-    experiment_name = f"{algorithm.lower()}_{mode}_{cumulative_steps}"
-    
+
     # Use the provided metrics_prefix or default to experiment_name
     if metrics_prefix is None:
         metrics_prefix = experiment_name
-    
-    # Setup callbacks with updated naming
-    checkpoint_callback = CheckpointCallback(
-        save_freq=min(50000, total_steps // 2),  # Save at least twice during training
-        save_path=model_dir, 
-        name_prefix=experiment_name
-    )
-    
-    metrics_callback = MetricsCallback(
-        save_freq=min(10000, total_steps // 5),  # Save metrics periodically
-        metrics_path=metrics_dir,
-        experiment_name=metrics_prefix
-    )
-    
-    # Learn with callbacks
+
+    # Setup callback for progress tracking only
+    metrics_callback = MetricsCallback(verbose=1)
+
+    # Make a unique experiment name with timestamp to avoid _1 suffixes
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_experiment_name = f"{experiment_name}_{timestamp}"
+
+    # Learn with callback using the unique name
     model.learn(
-        total_timesteps=total_steps, 
-        callback=[checkpoint_callback, metrics_callback],
-        tb_log_name=experiment_name  # Specify tensorboard log name for better organization
+        total_timesteps=total_steps,
+        callback=metrics_callback,
+        tb_log_name=unique_experiment_name
     )
-    
-    # Save final model and metrics with consistent naming
+
+    # Save ONLY final model with consistent naming (no timestamp in the filename)
     final_model_path = f"{model_dir}{experiment_name}.zip"
     model.save(final_model_path)
-    
-    final_metrics_file = f"{metrics_dir}{metrics_prefix}_final.csv"
+
+    # Save ONLY final metrics with consistent naming
+    final_metrics_file = f"{metrics_dir}{metrics_prefix}.csv"
     summary = env.save_metrics(final_metrics_file)
-    
+
     # Print final stats
     print("\n######## TRAINING STATS ########")
     for key, value in summary.items():
@@ -104,23 +99,24 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
             print(f"{key}: {value:.2f}")
         else:
             print(f"{key}: {value}")
-    
+
     print(f"Final model saved to: {final_model_path}")
     print(f"Final metrics saved to: {final_metrics_file}")
     print(f"Logs saved to: {log_dir} (access with tensorboard --logdir={log_dir})")
-    
+
     return env, model, summary
+
 
 # Main
 if __name__ == "__main__":
     env, model, summary = train_agent(
         algorithm='PPO',
-        mode="start",
-        total_steps=50000,
-        model_path=None,  # Set to existing model path if continuing training
+        mode="hard",
+        total_steps=200000,
+        model_path='models/ppo_hard_300000.zip',  # Set to existing model path if continuing training
         metrics_prefix=None  # Will default to "ppo_start_50000"
     )
-    
+
     # Example of continuing training
     """
     env, model, summary = train_agent(

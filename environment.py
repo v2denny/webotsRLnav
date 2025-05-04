@@ -4,6 +4,7 @@ from gymnasium.core import RenderFrame
 from controller import Robot, TouchSensor, DistanceSensor, Supervisor, GPS, Compass
 from scripts.utils import cmd_vel
 import math
+from collections import Counter
 from typing import List
 import numpy as np
 from scripts.positions import get_positions
@@ -42,13 +43,15 @@ class WebotsEnv(gym.Env):
         self.compass.enable(timestep)
         
         # Training
-        self.trainmode = None # Value defined in the training script
+        self.trainmode = 'start' # Value defined in the training script
         self.robotpos, self.targetpos = get_positions(str(self.trainmode))
         print("robotpos:",self.robotpos)
         print("targetpos:",self.targetpos)
         self.targs = int(len(self.targetpos))
         print("n_targets:", self.targs)
         self.max_steps_per_episode = 1000  # Limit to prevent infinite loops
+        self.prev_distance_to_target = self.calculate_distance_to_target()[0]
+        self.same_spot_steps = 0
 
         # Track visited locations
         self.visited_locations = set()
@@ -57,31 +60,13 @@ class WebotsEnv(gym.Env):
         self.previous_position = self.gps.getValues()[:2]
 
         # Metrics
-        self.steps = 0  # To keep track of steps per episode
-        self.total_episodes = 0
-        self.finished_episodes = 0
         self.metrics = MetricsTracker()
+        self.steps = 0
 
     '''
     Reset environment and metrics
     '''
     def reset(self, seed=None, options=None):
-        # Log the previous episode if this isn't the first reset
-        if self.steps > 0:
-            # Log if the episode was successful (reached final target)
-            success = self.targs == 0
-            self.metrics.log_episode(success, self.steps, len(self.visited_locations))
-        
-        # Reset episode-specific metrics
-        self.metrics.reset_episode_metrics()
-
-        # Counters
-        self.total_episodes+=1
-        self.visited_locations = set()
-        self.steps = 0
-        self.prev_distance_to_target = self.calculate_distance_to_target()[0]
-        self.same_spot_steps = 0
-
         # Set positions
         self.robotpos, self.targetpos = get_positions(str(self.trainmode))
         self.targs = int(len(self.targetpos))
@@ -89,6 +74,12 @@ class WebotsEnv(gym.Env):
         # Warp robot
         xpos, ypos = self.robotpos
         warp_robot(self.supervisor, "EPUCK", (xpos, ypos))
+        self.prev_distance_to_target = self.calculate_distance_to_target()[0]
+        self.steps = 0
+
+        # Counters
+        self.visited_locations = set()
+        self.same_spot_steps = 0
 
         # Rotate robot to target
         if str(self.trainmode) in ["start", "easy", "hard"]:
@@ -105,31 +96,41 @@ class WebotsEnv(gym.Env):
     def step(self, action):
         self.steps += 1
 
-        # If collision detected return negative reward
-        done = self.collision()
-        if done == True :
-            return self.get_observation(), -100, True, False, {}
-
-        # Choose the action
+        # Choose and execute the action
         if action == 0:
             cmd_vel(self.supervisor, 0.12, 0)
         elif action == 1:
             cmd_vel(self.supervisor, 0, 1.3)
         elif action == 2:
             cmd_vel(self.supervisor, 0, -1.3)
-        self.supervisor.step(200)
+        self.supervisor.step(100)
 
+        self.metrics.log_action(action)
+
+        # Check for collisions
         done = self.collision()
         if done == True :
+            self.metrics.log_step(-100)
+            self.metrics.log_episode(False, True, False, len(self.visited_locations))
             return self.get_observation(), -100, True, False, {}
 
-        # Truncate episode
         truncated = self.steps >= self.max_steps_per_episode
+        reward, done, success = self.calculate_reward()
 
-        reward, done = self.calculate_reward()
+        # Check for truncation
+        if truncated:
+            self.metrics.log_step(0)
+            self.metrics.log_episode(False, False, True, len(self.visited_locations))
+            return self.get_observation(), reward, done, truncated, {}
 
-        collision = self.collision()
-        self.metrics.log_step(reward, collision)
+        # Check for success
+        if success:
+            self.metrics.log_step(reward)
+            self.metrics.log_episode(True, False, False, len(self.visited_locations))
+            return self.get_observation(), reward, done, truncated, {}
+
+        # Log normal step
+        self.metrics.log_step(reward)
 
         return self.get_observation(), reward, done, truncated, {}
 
@@ -187,18 +188,20 @@ class WebotsEnv(gym.Env):
     def calculate_reward(self):
         self.supervisor.step()
         distance, closest_target = self.calculate_distance_to_target()
+        success = False
 
         # Collision penalty
         if self.touch_sensor.getValue() == 1.0:
             done = True
             reward = -100
-            return reward, done
+            return reward, done, success
 
         # Reached the target
         if distance < DIST_THRESHOLD and self.targs == 1:
+            self.targs -= 1
             done = True
             reward = 100
-            self.finished_episodes+=1
+            success = True
         elif distance < DIST_THRESHOLD and self.targs > 1:
             self.targs = self.targs - 1
             done = False
@@ -244,7 +247,7 @@ class WebotsEnv(gym.Env):
         self.prev_distance_to_target = distance
         self.previous_position = robot_position
 
-        return reward, done
+        return reward, done, success
 
     '''
     Calculate distance to 'main' target
@@ -328,58 +331,83 @@ Metric tracking and logging class
 '''
 class MetricsTracker:
     def __init__(self):
-        # Episode-level metrics
-        self.episode_rewards = []
-        self.episode_steps = []
-        self.episode_success = []
-        self.episode_collisions = []
-        self.unique_locations_count = []
-        
-        # Step-level metrics (reset each episode)
-        self.current_episode_reward = 0
-        self.collision_count = 0
-        self.targets_reached = 0
-        
         # Training-level metrics
+        self.episode_rewards = []
+        self.unique_locations_count = []
+        self.episode_steps = []
+        self.episode_successes = []
         self.start_time = time.time()
-        self.total_steps = 0
         self.total_episodes = 0
+        self.actions = []
         self.successful_episodes = 0
         self.total_collisions = 0
+        self.total_truncations = 0
+        
+        # Episode-level metrics (reset each episode)
+        self.current_episode_reward = 0
+        self.current_episode_steps = 0
+        self.done = False
+        self.collision = False
+        self.truncation = False
         
     def reset_episode_metrics(self):
         self.current_episode_reward = 0
-        self.collision_count = 0
-        
-    def log_step(self, reward, collision):
+        self.current_episode_steps = 0
+        self.done = False
+        self.collision = False
+        self.truncation = False
+
+    '''
+    Log metrics every step
+    '''
+    def log_step(self, reward):
         self.current_episode_reward += reward
-        self.total_steps += 1
-        if collision:
-            self.collision_count += 1
-            self.total_collisions += 1
-            
-    def log_episode(self, success, steps, unique_locations_count):
+        self.current_episode_steps += 1
+
+    def log_action(self, action):
+        self.actions.append(action)
+
+    '''
+    Log metrics at end of each episode
+    '''
+    def log_episode(self, success, collision, truncation, unique_locations_count):
         self.episode_rewards.append(self.current_episode_reward)
-        self.episode_steps.append(steps)
-        self.episode_success.append(1 if success else 0)
-        self.episode_collisions.append(self.collision_count)
+        self.episode_steps.append(self.current_episode_steps)
         self.unique_locations_count.append(unique_locations_count)
-        
         self.total_episodes += 1
         if success:
             self.successful_episodes += 1
-        
+            self.episode_successes.append('Success')
+        if collision:
+            self.total_collisions += 1
+            self.episode_successes.append('Collision')
+        if truncation:
+            self.total_truncations += 1
+            self.episode_successes.append('Truncation')
+
+        self.reset_episode_metrics()
+
+    def calculate_percentages(self, values):
+        counter = Counter(values)
+        total = sum(counter.values())
+        percentages = {val: (count / total) * 100 for val, count in counter.items()}
+        result = ', '.join([f"{val}-{int(percentage)}%" for val, percentage in sorted(percentages.items())])
+        return result
+
     def get_summary(self):
         training_time = time.time() - self.start_time
+
         return {
             "total_episodes": self.total_episodes,
             "successful_episodes": self.successful_episodes,
-            "success_rate": (self.successful_episodes / max(1, self.total_episodes)) * 100,
-            "collision_rate": (sum(self.episode_collisions) / max(1, self.total_episodes)),
-            "avg_episode_steps": sum(self.episode_steps) / max(1, self.total_episodes),
-            "avg_episode_reward": sum(self.episode_rewards) / max(1, self.total_episodes),
+            "success_rate": (self.successful_episodes / self.total_episodes) * 100,
+            "collision_rate": (self.total_collisions / self.total_episodes) * 100,
+            "truncation_rate": (self.total_truncations / self.total_episodes) * 100,
+            "actions": self.calculate_percentages(self.actions),
+            "avg_episode_steps": sum(self.episode_steps) / self.total_episodes,
+            "avg_episode_reward": sum(self.episode_rewards) / self.total_episodes,
             "avg_unique_locations": sum(self.unique_locations_count) / max(1, len(self.unique_locations_count)),
-            "total_steps": self.total_steps,
+            "total_steps": sum(self.episode_steps),
             "training_time_seconds": training_time
         }
     
@@ -392,9 +420,8 @@ class MetricsTracker:
             "episode": list(range(1, self.total_episodes + 1)),
             "reward": self.episode_rewards,
             "steps": self.episode_steps,
-            "success": self.episode_success,
-            "collisions": self.episode_collisions,
-            "unique_locations": self.unique_locations_count
+            "unique_locations": self.unique_locations_count,
+            "success": self.episode_successes
         }
         
         # Save episode-level data
