@@ -28,9 +28,9 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
     cumulative_steps = total_steps
 
     # Create directories - simplified and consistent paths
-    model_dir = "./models/"
-    log_dir = "./logs/"
-    metrics_dir = "./metrics/"
+    model_dir = "./research/models/"
+    log_dir = "./research/logs/"
+    metrics_dir = "./research/metrics/"
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(metrics_dir, exist_ok=True)
@@ -55,7 +55,7 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
             # Attempt to extract steps from filename format "algo_mode_steps.zip"
             filename_parts = os.path.basename(model_path).split('_')
             if len(filename_parts) >= 3:
-                prev_steps = int(filename_parts[-1].split('.')[0])
+                prev_steps = int(filename_parts[2].split('.')[0])
                 cumulative_steps = prev_steps + total_steps
                 # Update experiment name with new cumulative steps
                 experiment_name = f"{algorithm.lower()}_{mode}_{cumulative_steps}"
@@ -67,8 +67,8 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
         print("Training a new model")
 
     # Use the provided metrics_prefix or default to experiment_name
-    if metrics_prefix is None:
-        metrics_prefix = experiment_name
+    if metrics_prefix is not None:
+        experiment_name = experiment_name + "_" + metrics_prefix
 
     # Setup callback for progress tracking only
     metrics_callback = MetricsCallback(verbose=1)
@@ -89,7 +89,7 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
     model.save(final_model_path)
 
     # Save ONLY final metrics with consistent naming
-    final_metrics_file = f"{metrics_dir}{metrics_prefix}.csv"
+    final_metrics_file = f"{metrics_dir}{experiment_name}.csv"
     summary = env.save_metrics(final_metrics_file)
 
     # Print final stats
@@ -111,10 +111,10 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
 if __name__ == "__main__":
     env, model, summary = train_agent(
         algorithm='PPO',
-        mode="hard",
-        total_steps=200000,
-        model_path='models/ppo_hard_300000.zip',  # Set to existing model path if continuing training
-        metrics_prefix=None  # Will default to "ppo_start_50000"
+        mode="random",
+        total_steps=100000,
+        model_path='research/models/ppo_all_200000_act3_100ms.zip',  # Set to existing model path if continuing training
+        metrics_prefix='act3_100ms'
     )
 
     # Example of continuing training

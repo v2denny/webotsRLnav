@@ -1,0 +1,12 @@
+metric,value
+total_episodes,2529
+successful_episodes,1355
+success_rate,53.57848952155002
+collision_rate,46.42151047844998
+truncation_rate,0.0
+actions,0-65%, 1-18%, 2-16%
+avg_episode_steps,39.6785290628707
+avg_episode_reward,0.27738819969518164
+avg_unique_locations,10.687623566627126
+total_steps,100347
+training_time_seconds,956.3115839958191
