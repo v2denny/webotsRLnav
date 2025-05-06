@@ -6,6 +6,6 @@ Mobile Robot Basic Navigation Using RL
 2. curriculum learning (difficulty levels)
 
 ## questions before benchmarking diff algs:
-1. 100ms or 200ms action?
-2. 3 or 4 action space?
-3. problems whit corric learning: how many steps per 'level' so the model doesnt overfit and affects the next level?
+1. 100ms or 200ms action? 200ms>>
+2. 3 or 4 action space? 3act converges faster
+3. problems whit corric learning: how many steps per 'level' so the model doesnt overfit and affects the next level? TODO
