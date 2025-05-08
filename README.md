@@ -15,7 +15,7 @@ Mobile Robot Basic Navigation Using RL
 2. a2c (discrete action space)
 3. dqn (discrete action space)
 4. ddpg (continuous action space) action: (linear,angular) - apply move linear,angular
-5. sac (continuous action space)
+5. sac (continuous action space)   ####### update reward funct before training ########
 6. td3 (continuous action space)
 
 ## training steps:
