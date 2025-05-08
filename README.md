@@ -20,7 +20,7 @@ Mobile Robot Basic Navigation Using RL
 
 ## training steps:
 1. ppo (25k, 125k, 100k, 750k, 1M)
-2. a2c (25k, 50k-overfit, na, na, 1M) a2c doesnt benefit from curr learning
+2. a2c (25k, 50k-overfit, na, 1M, 1M) a2c doesnt benefit from curr learning
 3. dqn ()
 4. ddpg ()
 5. sac ()
