@@ -15,7 +15,7 @@ Mobile Robot Basic Navigation Using RL
 2. a2c (discrete action space)
 3. dqn (discrete action space)
 4. ddpg (continuous action space) action: (linear,angular) - apply move linear,angular
-5. sac (continuous action space)   ####### update reward funct before training ########
+5. sac (continuous action space)
 6. td3 (continuous action space)
 
 ## training steps:
@@ -33,12 +33,14 @@ to show if a2c and dqn are better without curr learning: compare currlearn easy 
 
 ## some reward adjustments after training some ppo, a2c and dqn (had to re-train everything):
 1. noticed bot didnt 'fear' the obstacles: increment penalty the closest he is to the wall, instead of just treshold and constant value
-2. same spot steps: instead of reseting, made it that when steps in same spot>=10 then always penalizes
+2. same spot steps: instead of reseting, made it that when steps in same spot>=5 then always penalizes
 3. a2c and dqn seem to not notice the small changes in the reward: scalled the rewards and added distance based reward instead of just penalty
 4. decreased new location reward so the bot doesnt prioritize exploration over exploitation
 5. noticed that bot went straight to the target but chose to hang out for a bit close to it before finishing the episode: increase time penalty from 0.5 to 1 to make each step "more expensive"; added a decreasing reward gradient when very close to the target (< 0.2m) so the bot gets less marginal benefit from hovering extremely close vs. just reaching the target; stricter "same spot" penalty that reduced the threshold from 10 steps to 5 steps, increased the penalty from -2.5 to -5.0 so it makes "hanging around" the target much more costly; added a more sophisticated proximity reward structure that gives diminishing returns when extremely close.
+6. sometimes the robot just does left-right when facing a wall as if it was 'locked': reward robot if he keeps rotating in just one direction when stuck facing a wall
+7. robot still prioritizes hovering near target over finishing episode: increased target reward; 
 
 ## some env changes (had to retrain everything):
 1. sometimes didnt detect collisions and keps running the episode: added collision chech before actions; improved collision detection
-2. obstacle avvoidance isnt that good, sometimes the bot just collides with the wall without even trying to avoid: improved obstacle avoidance in the reward function by increasing penalty;
-3. sometimes the robot just does left-right when facing a wall as if it was 'locked': reward robot if he keeps rotating in just one direction when stuck facing a wall
+2. changed from 9 to 15 lidar rays, removed ray clipping
+4. obstacle avvoidance isnt that good, sometimes the bot just collides with the wall without even trying to avoid: improved lidar readings and lidar position in webots env
