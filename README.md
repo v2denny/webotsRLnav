@@ -40,8 +40,10 @@ to show if a2c and dqn are better without curr learning: compare currlearn easy 
 6. sometimes the robot just does left-right when facing a wall as if it was 'locked': reward robot if he keeps rotating in just one direction when stuck facing a wall
 7. robot still prioritizes hovering near target over finishing episode: increased target reward;
 8. robot gets stuck on corners/long walls: reduced angle reward overall and when corner is detected; increased exploration reward; reward for turning in same direction if close to wall is detected
+9. robot still colliding and getting stuck on corners/walls: increased collision penalty; enhanced wall proximity penalties
 
 ## some env changes (had to retrain everything):
 1. sometimes didnt detect collisions and keps running the episode: added collision chech before actions; improved collision detection
 2. changed from 9 to 15 lidar rays, removed ray clipping
 4. obstacle avvoidance isnt that good, sometimes the bot just collides with the wall without even trying to avoid: improved lidar readings and lidar position in webots env
+5. robot still colliding and getting stuck on corners/walls: implemented predictive collision avoidance; updated collision detection system
