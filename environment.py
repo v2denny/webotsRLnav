@@ -14,6 +14,8 @@ import os
 import csv
 from datetime import datetime
 DIST_THRESHOLD = 0.1
+MAX_MAP_SIDE = 3.0
+MAX_POSSIBLE_DISTANCE = math.sqrt(2 * (MAX_MAP_SIDE ** 2))
 
 
 class WebotsEnv(gym.Env):
@@ -27,8 +29,8 @@ class WebotsEnv(gym.Env):
         timestep = int(self.supervisor.getBasicTimeStep())
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(
-            low=np.array([0] * 9 + [0, -np.pi]),
-            high=np.array([1] * 9 + [1, np.pi]),
+            low=np.array([0] * 15 + [0, -np.pi]),
+            high=np.array([2] * 15 + [MAX_POSSIBLE_DISTANCE, np.pi]),
             dtype=np.float32)
         
         # Sensors
@@ -53,7 +55,10 @@ class WebotsEnv(gym.Env):
         self.prev_distance_to_target = self.calculate_distance_to_target()[0]
         self.same_spot_steps = 0
 
-        # Track visited locations
+        # Track visited locations and actions
+        self.prev_actions = []
+        self.action_history_size = 6
+        self.current_action = None
         self.visited_locations = set()
         self.visit_threshold = 0.1  # Minimum distance to consider as a new location
         self.supervisor.step()
@@ -79,7 +84,9 @@ class WebotsEnv(gym.Env):
 
         # Counters
         self.visited_locations = set()
+        self.current_action = None
         self.same_spot_steps = 0
+        self.prev_actions = []
 
         # Rotate robot to target
         if str(self.trainmode) in ["start", "easy", "hard"]:
@@ -94,6 +101,13 @@ class WebotsEnv(gym.Env):
     Calculate step reward
     '''
     def step(self, action):
+        # Check for collisions
+        done = self.collision()
+        if done == True :
+            self.metrics.log_step(-100)
+            self.metrics.log_episode(False, True, False, len(self.visited_locations))
+            return self.get_observation(), -100, True, False, {}
+
         self.steps += 1
 
         # Choose and execute the action
@@ -103,9 +117,12 @@ class WebotsEnv(gym.Env):
             cmd_vel(self.supervisor, 0, 1.3)
         elif action == 2:
             cmd_vel(self.supervisor, 0, -1.3)
-        self.supervisor.step(100)
-
+        self.supervisor.step(200)
         self.metrics.log_action(action)
+        self.prev_actions.append(action)
+        self.current_action = action
+        if len(self.prev_actions) > self.action_history_size:
+            self.prev_actions.pop(0)
 
         # Check for collisions
         done = self.collision()
@@ -138,10 +155,13 @@ class WebotsEnv(gym.Env):
     Detect collision using touch sensor readings
     '''
     def collision(self):
-        self.supervisor.step()
-        if self.touch_sensor.getValue() == 1.0:
-            return True
-        else: return False
+        # Call supervisor.step() multiple times with small timesteps
+        # This helps ensure we don't miss collision events
+        for _ in range(2):
+            self.supervisor.step(1)
+            if self.touch_sensor.getValue() == 1.0:
+                return True
+        return False
 
     '''
     Rotate the robot towards the target
@@ -189,63 +209,123 @@ class WebotsEnv(gym.Env):
         self.supervisor.step()
         distance, closest_target = self.calculate_distance_to_target()
         success = False
+        reward_components = {}
 
         # Collision penalty
         if self.touch_sensor.getValue() == 1.0:
             done = True
-            reward = -100
+            reward = -500
             return reward, done, success
 
         # Reached the target
         if distance < DIST_THRESHOLD and self.targs == 1:
             self.targs -= 1
             done = True
-            reward = 100
+            reward = 500
             success = True
         elif distance < DIST_THRESHOLD and self.targs > 1:
             self.targs = self.targs - 1
             done = False
-            reward = 80
+            reward = 300
             self.targetpos.remove(closest_target)
         else:
             done = False
-            reward = -distance*0.5  # Negative reward based on distance to the target
+            reward = 0
 
-        # Additional reward shaping
-        if distance <= self.prev_distance_to_target: reward += 5 * (self.prev_distance_to_target - distance)  # Reward for getting closer
-        reward -= 0.8  # Small negative reward for each step taken (time penalty)
+        # Time penalty
+        time_penalty = 0.5 + (self.steps/400)
+        reward_components['time_penalty'] = -time_penalty
+        reward -= time_penalty
 
-        # Check if the current position is a new location
+        # Distance based reward
+        dist_reward = min(3, ((1/distance)*0.3) if distance > 0 else 3)
+        reward_components['distance_reward'] = dist_reward
+        reward += dist_reward
+
+        # Distance to target
+        dist_change = (self.prev_distance_to_target - distance) * 2
+        reward_components['dist_change'] = dist_change
+        reward += dist_change
+
+        # New location reward
         gps_readings: List[float] = self.gps.getValues()
         robot_position = (gps_readings[0], gps_readings[1])
-        current_position = (round(robot_position[0], 1), round(robot_position[1], 1))
+        current_position = (round(robot_position[0], 2), round(robot_position[1], 2))
         if current_position not in self.visited_locations:
             self.visited_locations.add(current_position)
-            reward += 2  # Reward for visiting a new location
+            new_position_reward = 0.1
+            if self.same_spot_steps > 5: new_position_reward *= 2.5
+            reward_components['new_position_reward'] = new_position_reward
+            reward += new_position_reward
 
+        # Movement reward
         distance_moved = np.linalg.norm(np.array(robot_position) - np.array(self.previous_position))
-        reward += distance_moved * 2  # Reward for movement
+        movement_reward = distance_moved * 0.5
+        reward_components['movement_reward'] = movement_reward
+        reward += movement_reward
 
         # Proximity to wall penalty
+        self.supervisor.step()
         point_cloud = np.array(self.lidar.getPointCloud())
         lidar_features = self.process_lidar(point_cloud)
+        wall_prox_penalty = 0
         for feature in lidar_features:
-            if feature <= 0.02: reward -= 1
+            if feature <= 0.2: wall_prox_penalty += (0.2 - feature) * 3
+        reward_components['wall_prox_penalty'] = -wall_prox_penalty
+        reward -= wall_prox_penalty
 
-        # Penalty for staying in the same spot (spinning)
+        # Penalty for staying in the same spot (spinning) ONLY ACTIVE IF NOT CLOSE TO A WALL
+        same_spot_penalty = 0
         movement_magnitude = np.linalg.norm(np.array(robot_position) - np.array(self.previous_position))
+        if movement_magnitude < 0.005: self.same_spot_steps += 1
+        else: self.same_spot_steps = 0
+        # Check if any lidar ray is detecting a close obstacle
+        close_to_wall = any(feature <= 0.12 for feature in lidar_features)
+        if self.same_spot_steps > 3:
+            same_spot_penalty = self.same_spot_steps * 0.25
+            if close_to_wall: same_spot_penalty *= 2
+            if distance < 0.3: same_spot_penalty *= 1.5
+        reward_components['same_spot_penalty'] = same_spot_penalty
+        reward -= same_spot_penalty
 
-        if movement_magnitude < 0.005:
-            self.same_spot_steps += 1
+        # Angle reward
+        angle = self.calculate_angle_to_target(closest_target)
+        angle = abs(angle)
+        # First check if there's a clear path to target
+        target_angle_index = int((angle + math.pi) / (2 * math.pi) * len(lidar_features))
+        target_angle_index = max(0, min(target_angle_index, len(lidar_features) - 1))
+        clear_path_to_target = lidar_features[target_angle_index] > 0.3
+
+        if clear_path_to_target:
+            angle_reward = min(1.0, 0.2 / angle) if angle > 0.05 else 1
         else:
-            self.same_spot_steps = 0
+            angle_reward = min(0.3, 0.05 / angle) if angle > 0.05 else 0.3
+        reward_components['angle_reward'] = angle_reward
+        reward += angle_reward
 
-        if self.same_spot_steps > 10:
-            reward -= 10
+        # Consistent turning incentive
+        consistent_turning_reward = 0
+        if self.same_spot_steps > 4:
+            if self.current_action in [1, 2]:
+                # Count how many of the same actions were done recently
+                same_direction_turns = sum(1 for a in self.prev_actions if a == self.current_action)
+                if same_direction_turns >= 4:
+                    consistent_turning_reward = 1.0
+                    if close_to_wall:
+                        consistent_turning_reward *= 1.5
+        reward_components['consistent_turning'] = consistent_turning_reward
+        reward += consistent_turning_reward
 
         # Update previous values
         self.prev_distance_to_target = distance
         self.previous_position = robot_position
+
+        # Debugging
+        debug = False
+        if debug:
+            print(f"Distance to target: {distance:.3f}, Total reward: {reward:.2f}")
+            for component, value in reward_components.items():
+                print(f"  {component}: {value:.2f}")
 
         return reward, done, success
 
@@ -292,26 +372,23 @@ class WebotsEnv(gym.Env):
         return relative_angle
 
     '''
-    Get 9 equidistant rays of lidar
+    Get 15 equidistant rays of lidar
     Keeps the observation space simple
     Enough rays for this task
     '''
     def process_lidar(self, point_cloud):
         distances = []
+        # Instead of selecting 15 points from the lidar readings,
+        # simply change the number of lidar rays in the simulation
+        # Increased from 9 to 15 for better obstacle detection coverage
 
-        # Select 9 points from the lidar readings (100 total)
-        ids = [0, 11, 24, 36, 49, 61, 74, 86, 99]
-        pc9 = [point_cloud[i] for i in ids]
-
-        for point in pc9:
+        for point in point_cloud:
             x = point.x
             y = point.y
             distance = np.sqrt(x ** 2 + y ** 2)
             distances.append(min(distance, 2))
 
-        # Normalize to range [0, 1]
         distances = np.array(distances)
-        distances = np.clip(distances / 2, 0, 1)
         return distances
 
     '''
