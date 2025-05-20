@@ -38,7 +38,8 @@ to show if a2c and dqn are better without curr learning: compare currlearn easy 
 4. decreased new location reward so the bot doesnt prioritize exploration over exploitation
 5. noticed that bot went straight to the target but chose to hang out for a bit close to it before finishing the episode: increase time penalty from 0.5 to 1 to make each step "more expensive"; added a decreasing reward gradient when very close to the target (< 0.2m) so the bot gets less marginal benefit from hovering extremely close vs. just reaching the target; stricter "same spot" penalty that reduced the threshold from 10 steps to 5 steps, increased the penalty from -2.5 to -5.0 so it makes "hanging around" the target much more costly; added a more sophisticated proximity reward structure that gives diminishing returns when extremely close.
 6. sometimes the robot just does left-right when facing a wall as if it was 'locked': reward robot if he keeps rotating in just one direction when stuck facing a wall
-7. robot still prioritizes hovering near target over finishing episode: increased target reward; 
+7. robot still prioritizes hovering near target over finishing episode: increased target reward;
+8. robot gets stuck on corners/long walls: reduced angle reward overall and when corner is detected; increased exploration reward; reward for turning in same direction if close to wall is detected
 
 ## some env changes (had to retrain everything):
 1. sometimes didnt detect collisions and keps running the episode: added collision chech before actions; improved collision detection
