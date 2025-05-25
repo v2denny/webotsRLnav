@@ -1,4 +1,4 @@
-#VRML_SIM R2023b utf8
+#VRML_SIM R2025a utf8
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
@@ -13,8 +13,8 @@ WorldInfo {
   basicTimeStep 16
 }
 Viewpoint {
-  orientation -0.47520105016637554 0.4738566810668034 0.7413796650361593 1.8683798625859525
-  position 0.13698332288371906 -2.6578262476817125 5.448150799155869
+  orientation -0.5777409715607499 0.5761065115580586 0.5782012254574054 2.095572711171713
+  position -0.0035462885298114567 -0.1797482377416349 5.238653465717382
 }
 DEF EPUCK Robot {
   translation -1.0303334703382976 -0.35581558889328063 -3.2715303511047025e-05
@@ -30,11 +30,10 @@ DEF EPUCK Robot {
       }
     }
     Lidar {
-      translation 0 0 0.03
-      horizontalResolution 100
+      translation 0.028 0 0.03
+      horizontalResolution 25
+      fieldOfView 2.62
       numberOfLayers 1
-      near 0.05
-      minRange 0.05
     }
     Compass {
     }
@@ -191,8 +190,6 @@ DEF EPUCK Robot {
           density -1
           mass 0.005
         }
-        linearVelocity 0.033230158680562706 -0.003439162095559169 -8.61059601398087e-08
-        angularVelocity 0.18836216603350062 1.8170929791633055 1.271413464995873
       }
     }
     HingeJoint {
@@ -226,8 +223,6 @@ DEF EPUCK Robot {
         name "right wheel"
         boundingObject USE EPUCK_WHEEL_BOUNDING_OBJECT
         physics USE EPUCK_WHEEL_PHYSICS
-        linearVelocity -0.032456709734306026 0.0033754544081526974 -1.2120989165700077e-07
-        angularVelocity -0.18431541558272868 -1.7784574474253896 1.2713067575200603
       }
     }
     DEF BATTERY_CONNECTOR Pose {
@@ -965,7 +960,7 @@ DEF EPUCK Robot {
       ]
     }
     DEF EPUCK_FRONT_LED LED {
-      translation 0.031 -0.0125 0.0285
+      translation 0.028 -0.0125 0.0285
       children [
         Shape {
           appearance PBRAppearance {

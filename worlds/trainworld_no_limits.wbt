@@ -1,4 +1,4 @@
-#VRML_SIM R2023b utf8
+#VRML_SIM R2025a utf8
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
@@ -13,8 +13,8 @@ WorldInfo {
   basicTimeStep 16
 }
 Viewpoint {
-  orientation -0.47520105016637554 0.4738566810668034 0.7413796650361593 1.8683798625859525
-  position 0.13698332288371906 -2.6578262476817125 5.448150799155869
+  orientation -0.5079720500775561 0.5065349700725034 0.6966970076250167 1.9272374537039814
+  position -0.014277091533249775 -1.7176355117371758 4.712238524500921
 }
 DEF EPUCK Robot {
   translation -1.0303334703382976 -0.35581558889328063 -3.2715303511047025e-05
@@ -30,11 +30,10 @@ DEF EPUCK Robot {
       }
     }
     Lidar {
-      translation 0 0 0.03
-      horizontalResolution 100
+      translation 0.028 0 0.03
+      horizontalResolution 25
+      fieldOfView 2.62
       numberOfLayers 1
-      near 0.05
-      minRange 0.05
     }
     Compass {
     }
