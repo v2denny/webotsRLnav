@@ -1,6 +1,7 @@
 from environment import WebotsEnv
 import random
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, DQN
+from stable_baselines3 import SAC, TD3
 from stable_baselines3.common.callbacks import BaseCallback
 import os
 import time
@@ -28,9 +29,9 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
     cumulative_steps = total_steps
 
     # Create directories - simplified and consistent paths
-    model_dir = "./research/models/"
-    log_dir = "./research/logs/"
-    metrics_dir = "./research/metrics/"
+    model_dir = "./models/"
+    log_dir = "./logs/"
+    metrics_dir = "./metrics/"
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(metrics_dir, exist_ok=True)
@@ -45,9 +46,20 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
         import shutil
         shutil.rmtree(specific_log_dir)
 
-    # Create or load model
+    # Create or load model based on algorithm
     if model_path and os.path.exists(model_path):
-        model = PPO.load(model_path, env=env, tensorboard_log=log_dir)
+        # Load existing model based on algorithm
+        if algorithm == "PPO":
+            model = PPO.load(model_path, env=env, tensorboard_log=log_dir)
+        elif algorithm == "DQN":
+            model = DQN.load(model_path, env=env, tensorboard_log=log_dir)
+        elif algorithm == "SAC":
+            model = SAC.load(model_path, env=env, tensorboard_log=log_dir)
+        elif algorithm == "TD3":
+            model = TD3.load(model_path, env=env, tensorboard_log=log_dir)
+        else:
+            raise ValueError(f"Unsupported algorithm: {algorithm}")
+
         print(f"Model loaded from {model_path}")
 
         # Extract previous steps from filename if possible
@@ -63,8 +75,62 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
         except (ValueError, IndexError):
             print(f"Could not extract previous steps from filename, using {cumulative_steps} as total")
     else:
-        model = PPO('MlpPolicy', env, verbose=1, tensorboard_log=log_dir)
-        print("Training a new model")
+        # Create new model based on algorithm
+        if algorithm == "PPO":
+            model = PPO(
+                'MlpPolicy',
+                env,
+                verbose=1,
+                learning_rate=0.0003,
+                gamma=0.99,
+                tensorboard_log=log_dir
+            )
+        elif algorithm == "DQN":
+            model = DQN(
+                'MlpPolicy',
+                env,
+                verbose=1,
+                learning_rate=0.0005,
+                buffer_size=50000,
+                learning_starts=1000,
+                batch_size=128,
+                gamma=0.99,
+                exploration_fraction=0.2,
+                exploration_final_eps=0.05,
+                tensorboard_log=log_dir
+            )
+        elif algorithm == "SAC":
+            model = SAC(
+                'MlpPolicy',
+                env,
+                verbose=1,
+                learning_rate=0.0003,
+                buffer_size=50000,
+                learning_starts=1000,
+                batch_size=256,
+                gamma=0.99,
+                tau=0.005,
+                ent_coef='auto',
+                tensorboard_log=log_dir
+            )
+        elif algorithm == "TD3":
+            model = TD3(
+                'MlpPolicy',
+                env,
+                verbose=1,
+                learning_rate=0.0003,
+                buffer_size=50000,
+                learning_starts=1000,
+                batch_size=256,
+                gamma=0.99,
+                tau=0.005,
+                policy_delay=2,
+                tensorboard_log=log_dir
+            )
+        else:
+            raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        print(f"Training a new {algorithm} model")
 
     # Use the provided metrics_prefix or default to experiment_name
     if metrics_prefix is not None:
@@ -110,23 +176,12 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
 # Main
 if __name__ == "__main__":
     env, model, summary = train_agent(
-        algorithm='PPO',
+        algorithm='PPO',  # Change this to 'PPO', 'DQN', 'SAC', or 'TD3'
         mode="random",
         total_steps=100000,
-        model_path='research/models/ppo_all_200000_act3_100ms.zip',  # Set to existing model path if continuing training
-        metrics_prefix='act3_100ms'
+        model_path='models/ppo_all_600000.zip',  # Set to existing model path if continuing training
+        metrics_prefix=None
     )
-
-    # Example of continuing training
-    """
-    env, model, summary = train_agent(
-        algorithm='PPO',
-        mode="start",
-        total_steps=50000,
-        model_path="models/ppo_start_50000.zip",
-        metrics_prefix=None  # Will default to "ppo_start_100000"
-    )
-    """
 
 # MODES:
 # start = only one position + towards target

@@ -29,8 +29,8 @@ class WebotsEnv(gym.Env):
         timestep = int(self.supervisor.getBasicTimeStep())
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(
-            low=np.array([0] * 15 + [0, -np.pi]),
-            high=np.array([2] * 15 + [MAX_POSSIBLE_DISTANCE, np.pi]),
+            low=np.array([0] * 25 + [0, -np.pi]),
+            high=np.array([2] * 25 + [MAX_POSSIBLE_DISTANCE, np.pi]),
             dtype=np.float32)
         
         # Sensors
@@ -51,7 +51,7 @@ class WebotsEnv(gym.Env):
         print("targetpos:",self.targetpos)
         self.targs = int(len(self.targetpos))
         print("n_targets:", self.targs)
-        self.max_steps_per_episode = 1000  # Limit to prevent infinite loops
+        self.max_steps_per_episode = 250  # Limit to prevent infinite loops
         self.prev_distance_to_target = self.calculate_distance_to_target()[0]
         self.same_spot_steps = 0
 
@@ -63,6 +63,7 @@ class WebotsEnv(gym.Env):
         self.visit_threshold = 0.1  # Minimum distance to consider as a new location
         self.supervisor.step()
         self.previous_position = self.gps.getValues()[:2]
+        self.predictive_stopping = 0
 
         # Metrics
         self.metrics = MetricsTracker()
@@ -87,6 +88,7 @@ class WebotsEnv(gym.Env):
         self.current_action = None
         self.same_spot_steps = 0
         self.prev_actions = []
+        self.predictive_stopping = 0
 
         # Rotate robot to target
         if str(self.trainmode) in ["start", "easy", "hard"]:
@@ -107,8 +109,27 @@ class WebotsEnv(gym.Env):
             self.metrics.log_step(-100)
             self.metrics.log_episode(False, True, False, len(self.visited_locations))
             return self.get_observation(), -100, True, False, {}
-
         self.steps += 1
+
+        # PREDICTIVE COLLISION AVOIDANCE
+        point_cloud = np.array(self.lidar.getPointCloud())
+        lidar_features = self.process_lidar(point_cloud)
+
+        # Check if moving forward would lead to collision
+        if action == 0:  # Forward movement
+            # Look at front-facing lidar readings
+            center_index = len(lidar_features) // 2
+            ray_span = 3  # 3 rays on each side of center for ~42° total
+            front_indices = range(center_index - ray_span, center_index + ray_span + 1)
+            front_distances = [lidar_features[i] for i in front_indices]
+            min_front_distance = min(front_distances)
+
+            # If too close to obstacle in front, penalize but don't execute
+            if min_front_distance <= 0.085:
+                self.predictive_stopping += 1
+                if self.predictive_stopping <= 5:
+                    self.metrics.log_step(-15)
+                    return self.get_observation(), -15, False, False, {}
 
         # Choose and execute the action
         if action == 0:
@@ -157,9 +178,9 @@ class WebotsEnv(gym.Env):
     def collision(self):
         # Call supervisor.step() multiple times with small timesteps
         # This helps ensure we don't miss collision events
-        for _ in range(2):
+        for _ in range(5):
             self.supervisor.step(1)
-            if self.touch_sensor.getValue() == 1.0:
+            if self.touch_sensor.getValue() >= 0.9:
                 return True
         return False
 
@@ -274,7 +295,7 @@ class WebotsEnv(gym.Env):
         reward_components['wall_prox_penalty'] = -wall_prox_penalty
         reward -= wall_prox_penalty
 
-        # Penalty for staying in the same spot (spinning) ONLY ACTIVE IF NOT CLOSE TO A WALL
+        # Penalty for staying in the same spot (spinning)
         same_spot_penalty = 0
         movement_magnitude = np.linalg.norm(np.array(robot_position) - np.array(self.previous_position))
         if movement_magnitude < 0.005: self.same_spot_steps += 1
@@ -283,7 +304,7 @@ class WebotsEnv(gym.Env):
         close_to_wall = any(feature <= 0.12 for feature in lidar_features)
         if self.same_spot_steps > 3:
             same_spot_penalty = self.same_spot_steps * 0.25
-            if close_to_wall: same_spot_penalty *= 2
+            if close_to_wall: same_spot_penalty *= 0.5
             if distance < 0.3: same_spot_penalty *= 1.5
         reward_components['same_spot_penalty'] = same_spot_penalty
         reward -= same_spot_penalty
