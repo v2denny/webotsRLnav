@@ -1,4 +1,5 @@
-from environment import WebotsEnv
+from environment import WebotsEnv as DiscreteEnv  # For PPO and DQN
+from environment_cont import WebotsEnv as ContinuousEnv  # For SAC and TD3
 import random
 from stable_baselines3 import PPO, DQN
 from stable_baselines3 import SAC, TD3
@@ -22,7 +23,16 @@ class MetricsCallback(BaseCallback):
 
 # Main training code
 def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=None, metrics_prefix=None):
-    env = WebotsEnv()
+    # Create appropriate environment based on algorithm
+    if algorithm.upper() in ['PPO', 'DQN']:
+        env = DiscreteEnv()
+        print(f"Using discrete environment for {algorithm}")
+    elif algorithm.upper() in ['SAC', 'TD3']:
+        env = ContinuousEnv()
+        print(f"Using continuous environment for {algorithm}")
+    else:
+        raise ValueError(f"Unsupported algorithm: {algorithm}")
+    
     env.trainmode = mode
 
     # Track total steps including previous training if model is loaded
@@ -49,34 +59,41 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
     # Create or load model based on algorithm
     if model_path and os.path.exists(model_path):
         # Load existing model based on algorithm
-        if algorithm == "PPO":
-            model = PPO.load(model_path, env=env, tensorboard_log=log_dir)
-        elif algorithm == "DQN":
-            model = DQN.load(model_path, env=env, tensorboard_log=log_dir)
-        elif algorithm == "SAC":
-            model = SAC.load(model_path, env=env, tensorboard_log=log_dir)
-        elif algorithm == "TD3":
-            model = TD3.load(model_path, env=env, tensorboard_log=log_dir)
-        else:
-            raise ValueError(f"Unsupported algorithm: {algorithm}")
-
-        print(f"Model loaded from {model_path}")
-
-        # Extract previous steps from filename if possible
         try:
-            # Attempt to extract steps from filename format "algo_mode_steps.zip"
-            filename_parts = os.path.basename(model_path).split('_')
-            if len(filename_parts) >= 3:
-                prev_steps = int(filename_parts[2].split('.')[0])
-                cumulative_steps = prev_steps + total_steps
-                # Update experiment name with new cumulative steps
-                experiment_name = f"{algorithm.lower()}_{mode}_{cumulative_steps}"
-                print(f"Continuing training from step {prev_steps}, will train to {cumulative_steps}")
-        except (ValueError, IndexError):
-            print(f"Could not extract previous steps from filename, using {cumulative_steps} as total")
-    else:
+            if algorithm.upper() == "PPO":
+                model = PPO.load(model_path, env=env, tensorboard_log=log_dir)
+            elif algorithm.upper() == "DQN":
+                model = DQN.load(model_path, env=env, tensorboard_log=log_dir)
+            elif algorithm.upper() == "SAC":
+                model = SAC.load(model_path, env=env, tensorboard_log=log_dir)
+            elif algorithm.upper() == "TD3":
+                model = TD3.load(model_path, env=env, tensorboard_log=log_dir)
+            else:
+                raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+            print(f"Model loaded from {model_path}")
+
+            # Extract previous steps from filename if possible
+            try:
+                # Attempt to extract steps from filename format "algo_mode_steps.zip"
+                filename_parts = os.path.basename(model_path).split('_')
+                if len(filename_parts) >= 3:
+                    prev_steps = int(filename_parts[2].split('.')[0])
+                    cumulative_steps = prev_steps + total_steps
+                    # Update experiment name with new cumulative steps
+                    experiment_name = f"{algorithm.lower()}_{mode}_{cumulative_steps}"
+                    print(f"Continuing training from step {prev_steps}, will train to {cumulative_steps}")
+            except (ValueError, IndexError):
+                print(f"Could not extract previous steps from filename, using {cumulative_steps} as total")
+        
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            print("Creating new model instead...")
+            model_path = None  # Force creation of new model
+    
+    if not model_path or not os.path.exists(model_path):
         # Create new model based on algorithm
-        if algorithm == "PPO":
+        if algorithm.upper() == "PPO":
             model = PPO(
                 'MlpPolicy',
                 env,
@@ -85,7 +102,7 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
                 gamma=0.99,
                 tensorboard_log=log_dir
             )
-        elif algorithm == "DQN":
+        elif algorithm.upper() == "DQN":
             model = DQN(
                 'MlpPolicy',
                 env,
@@ -99,7 +116,7 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
                 exploration_final_eps=0.05,
                 tensorboard_log=log_dir
             )
-        elif algorithm == "SAC":
+        elif algorithm.upper() == "SAC":
             model = SAC(
                 'MlpPolicy',
                 env,
@@ -113,7 +130,7 @@ def train_agent(algorithm="PPO", mode="start", total_steps=50000, model_path=Non
                 ent_coef='auto',
                 tensorboard_log=log_dir
             )
-        elif algorithm == "TD3":
+        elif algorithm.upper() == "TD3":
             model = TD3(
                 'MlpPolicy',
                 env,
