@@ -29,6 +29,17 @@ Curriculum learning provides **5x faster training** compared to direct training 
 - Predictive collision avoidance
 - Multi-target navigation support
 
+## Requirements
+
+- Python 3.8+
+- Webots R2023a+
+- Gymnasium
+- Stable-Baselines3
+- NumPy
+- TensorBoard
+
+
+
 ## Installation
 
 1. Clone the repository:
@@ -140,15 +151,61 @@ The training uses a progressive curriculum with 5 stages:
 - Angle to target [-π, π]
 
 
-## Requirements
+# Development Notes
 
-- Python 3.8+
-- Webots R2023a+
-- Gymnasium
-- Stable-Baselines3
-- NumPy
-- TensorBoard
+## Design Decisions
 
+### Action Configuration
+- **Timestep**: 200ms (vs 100ms) - Provides better stability for decision making
+- **Action Space**: 3 actions (Forward, Turn Left, Turn Right) - 4th action (backwards) adds unnecessary complexity without benefits
+
+### Algorithm Selection
+Tested 4 algorithms across discrete and continuous action spaces:
+
+**Discrete Action Space:**
+- PPO - Robust performance with excellent curriculum learning benefits
+- DQN - Moderate performance, some curriculum learning benefits
+
+**Continuous Action Space:**
+- SAC - Strong exploration with entropy regularization
+- TD3 - Best overall performance with twin critic architecture
+
+## Reward Function Evolution
+
+### Initial Issues & Solutions
+
+**Obstacle Avoidance:**
+- Problem: Robot didn't fear obstacles enough
+- Solution: Gradient penalty based on distance to walls instead of threshold-based
+
+**Target Hovering:**
+- Problem: Robot lingered near target instead of completing episodes
+- Solution: Increased time penalty, added diminishing returns for extreme proximity
+
+**Wall Stuck Behavior:**
+- Problem: Robot oscillated left-right when facing walls
+- Solution: Reward consistent rotation direction when wall-stuck
+
+**Corner Navigation:**
+- Problem: Getting stuck on corners and long walls
+- Solution: Enhanced exploration rewards, improved turning incentives
+
+## Environment Improvements
+
+### Sensor Configuration
+- **LiDAR**: Upgraded from 9 to 25 rays for better obstacle detection
+- **Range**: Removed ray clipping for full sensor range
+- **Positioning**: Improved sensor placement in Webots environment
+
+### Collision Detection
+- **Predictive System**: Prevents collisions before they occur
+- **Multi-step Verification**: Enhanced detection reliability
+- **Action Blocking**: Temporary prevention of risky forward movements
+
+### Safety Features
+- Pre-action collision checking
+- Predictive collision avoidance with 42° frontal cone analysis
+- Adaptive penalty system for repeated risky behavior
 
 ## Contact
 
