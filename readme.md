@@ -126,7 +126,7 @@ tensorboard --logdir=./logs/
 
 ## Curriculum Learning
 
-The training uses a progressive curriculum with 5 stages:
+The training uses a progressive curriculum with five stages:
 
 - **START** (25k steps): Single target, clear path, auto-oriented
 - **EASY** (50k steps): Multiple positions, single obstacles, auto-oriented  
